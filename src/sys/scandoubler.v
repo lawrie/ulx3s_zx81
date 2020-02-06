@@ -1,8 +1,7 @@
 //
-// scandoubler.v
+// Scandoubler from zx01_mist.v
 // 
-// Copyright (c) 2015 Till Harbaum <till@harbaum.org> 
-// Copyright (c) 2017-2019 Sorgelig
+// Copyright (c) 2014 Till Harbaum <till@harbaum.org> 
 // 
 // This source file is free software: you can redistribute it and/or modify 
 // it under the terms of the GNU General Public License as published 
@@ -17,199 +16,122 @@
 // You should have received a copy of the GNU General Public License 
 // along with this program.  If not, see <http://www.gnu.org/licenses/>. 
 
-// TODO: Delay vsync one line
+module scandoubler (
+  // system interface
+  input 	          clk,
+  input            ce_2pix,
 
-module scandoubler #(parameter LENGTH, parameter HALF_DEPTH)
-(
-	// system interface
-	input             clk_sys,
-	input             ce_pix,
-	output            ce_pix_out,
+  input            scanlines,
+		    
+  // video input
+  input            csync,
+  input            v_in,
 
-	input             hq2x,
-
-	// shifter video interface
-	input             hs_in,
-	input             vs_in,
-	input             hb_in,
-	input             vb_in,
-
-	input  [DWIDTH:0] r_in,
-	input  [DWIDTH:0] g_in,
-	input  [DWIDTH:0] b_in,
-	input             mono,
-
-	// output interface
-	output reg        hs_out,
-	output            vs_out,
-	output            hb_out,
-	output            vb_out,
-	output [DWIDTH:0] r_out,
-	output [DWIDTH:0] g_out,
-	output [DWIDTH:0] b_out
+  // output interface
+  output reg          hs_out,
+  output reg          vs_out,
+  output              v_out
 );
 
-localparam DWIDTH = HALF_DEPTH ? 3 : 7;
+// column counter running at 13MHz, twice the zx81 pixel clock
+reg [8:0] sd_col;
 
-reg  [7:0] pix_len = 0;
-wire [7:0] pl = pix_len + 1'b1;
+// column counter running at 13MHz, but counting through a whole zx81 line
+reg [9:0] zx_col;
+wire[9:0] zx_col_next = zx_col + 1'd1;
 
-reg  [7:0] pix_in_cnt = 0;
-wire [7:0] pc_in = pix_in_cnt + 1'b1;
-reg  [7:0] pixsz, pixsz2, pixsz4 = 0;
+// counter to determine sync lengths in the composity sync signal
+// used to differentiate between hsync and vsync
+reg [7:0] sync_len;
+//reg vs, csD /* synthesis noprune */;
+reg vs, csD;
 
-reg ce_x4i, ce_x1i;
-always @(negedge clk_sys) begin
-	reg old_ce, valid, hs;
+// horizontal display goes from 40 to 168. We add 16 border pixels left and right
+wire h_de = (sd_col >= (2*32)) && (sd_col < 2*182);   // 176
 
-	if(~&pix_len) pix_len <= pl;
-	if(~&pix_in_cnt) pix_in_cnt <= pc_in;
+// vertical display goes from line 32 to 224.We add 16 border pixels top and bottom
+wire v_de = (line_cnt >= 16) && (line_cnt < 296);    // 240  
 
-	ce_x4i <= 0;
-	ce_x1i <= 0;
+wire hs = sd_col < (2*192);
 
-	// use such odd comparison to place ce_x4 evenly if master clock isn't multiple of 4.
-	if((pc_in == pixsz4) || (pc_in == pixsz2) || (pc_in == (pixsz2+pixsz4))) ce_x4i <= 1;
+// line counter also for debug purposes
+reg [9:0] line_cnt /* synthesis noprune */;
 
-	old_ce <= ce_pix;
-	if(~old_ce & ce_pix) begin
-		if(valid & ~hb_in & ~vb_in) begin
-			pixsz  <= pl;
-			pixsz2 <= {1'b0,  pl[7:1]};
-			pixsz4 <= {2'b00, pl[7:2]};
+reg scanline;
+
+// enough space for two complete lines (incl. border and sync),
+// each being 414 physical pixels wide
+reg       line_buffer[1023:0];
+reg [9:0] rdaddr;
+reg [9:0] wraddr;
+reg       q;
+
+assign v_out = (scanlines & scanline) ? 0 : q && v_de && h_de;
+
+// toggle bit to switch between both line buffers
+reg sd_toggle;
+
+// video output of scan doubler
+reg sd_video;
+
+// scan doublers hsync/vsync generator runs on 6.5MHz
+always @(posedge clk) begin
+	
+	if (ce_2pix) begin
+
+		csD <= csync;
+
+		if(csync) begin
+			sync_len <= 8'd0;
+			vs_out <= 1'b0;
+		end else begin
+			// count sync pulse length. Stop counting at 255
+			if(sync_len < 255)
+				sync_len <= sync_len + 8'd1;
+
+			// if counter passes 90 then we are seeing a vsync
+			if(sync_len == 90) begin
+				vs_out <= 1'b1;
+				line_cnt <= 10'd0;
+				scanline <= 0;
+			end
 		end
-		pix_len <= 0;
-		valid <= 1;
-	end
+		hs_out <= hs;
 
-	hs <= hs_in;
-	if((~hs & hs_in) || (pc_in >= pixsz)) begin
-		ce_x4i <= 1;
-		ce_x1i <= 1;
-		pix_in_cnt <= 0;
-	end
+		// reset scan doubler column counter on rising edge of csync (end of sync) or
+		// every 414 pixels
+		if((sd_col == 413) ||(csync && !csD && sync_len < 90)) begin
+			sd_col <= 9'd0;
+			rdaddr[8:0] <= 0;
+			scanline <= !scanline;
+		end else begin
+			sd_col <= sd_col + 9'd1;
+			rdaddr[8:0] <= rdaddr[8:0] + 1'd1;
+		end
+		
+		// change toggle bit at the end of each zx line
+		if(csync && !csD) begin
+			sd_toggle <= !sd_toggle;
+			rdaddr[9] <= sd_toggle;
+			wraddr[9] <= !sd_toggle;
+			line_cnt <= line_cnt + 10'd1;
+		end
+			
+		// zx81 column counter
+		if((csync && !csD && sync_len < 90)) begin
+			zx_col <= 10'd0;
+			wraddr[8:0] <= 0;
+		end else begin
+			zx_col <= zx_col_next;
+			wraddr[8:0] <= zx_col_next[9:1];
+		end
 
-	if(hb_in | vb_in) valid <= 0;
-end
-
-reg req_line_reset;
-reg [DWIDTH:0] r_d, g_d, b_d;
-always @(posedge clk_sys) begin
-	if(ce_x1i) begin
-		req_line_reset <= hb_in;
-		r_d <= r_in;
-		g_d <= g_in;
-		b_d <= b_in;
-	end
-end
-
-Hq2x #(.LENGTH(LENGTH), .HALF_DEPTH(HALF_DEPTH)) Hq2x
-(
-	.clk(clk_sys),
-
-	.ce_in(ce_x4i),
-	.inputpixel({b_d,g_d,r_d}),
-	.mono(mono),
-	.disable_hq2x(~hq2x),
-	.reset_frame(vb_in),
-	.reset_line(req_line_reset),
-
-	.ce_out(ce_x4o),
-	.read_y(sd_line),
-	.hblank(hbo[0]&hbo[8]),
-	.outpixel({b_out,g_out,r_out})
-);
-
-reg  [7:0] pix_out_cnt = 0;
-wire [7:0] pc_out = pix_out_cnt + 1'b1;
-
-reg ce_x4o, ce_x2o;
-always @(negedge clk_sys) begin
-	reg hs;
-
-	if(~&pix_out_cnt) pix_out_cnt <= pc_out;
-
-	ce_x4o <= 0;
-	ce_x2o <= 0;
-
-	// use such odd comparison to place ce_x4 evenly if master clock isn't multiple of 4.
-	if((pc_out == pixsz4) || (pc_out == pixsz2) || (pc_out == (pixsz2+pixsz4))) ce_x4o <= 1;
-	if( pc_out == pixsz2) ce_x2o <= 1;
-
-	hs <= hs_out;
-	if((~hs & hs_out) || (pc_out >= pixsz)) begin
-		ce_x2o <= 1;
-		ce_x4o <= 1;
-		pix_out_cnt <= 0;
+		// fetch one line at half the scan doubler frequency
+		if(zx_col[0])
+			line_buffer[wraddr] <= v_in;
+		
+		// output other line at full scan doubler frequency
+		q <= line_buffer[rdaddr];
 	end
 end
-
-reg [1:0] sd_line;
-reg [3:0] vbo;
-reg [3:0] vso;
-reg [8:0] hbo;
-always @(posedge clk_sys) begin
-
-	reg [31:0] hcnt;
-	reg [30:0] sd_hcnt;
-	reg [30:0] hs_start, hs_end;
-	reg [30:0] hde_start, hde_end;
-
-	reg hs, hb;
-
-	if(ce_x4o) begin
-		hbo[8:1] <= hbo[7:0];
-	end
-
-	// output counter synchronous to input and at twice the rate
-	sd_hcnt <= sd_hcnt + 1'd1;
-	if(sd_hcnt == hde_start) begin
-		sd_hcnt <= 0;
-		vbo[3:1] <= vbo[2:0];
-	end
-
-	if(sd_hcnt == hs_end) begin
-		sd_line <= sd_line + 1'd1;
-		if(&vbo[3:2]) sd_line <= 1;
-		vso[3:1] <= vso[2:0];
-	end
-
-	if(sd_hcnt == hde_start)hbo[0] <= 0;
-	if(sd_hcnt == hde_end)  hbo[0] <= 1;
-
-	// replicate horizontal sync at twice the speed
-	if(sd_hcnt == hs_end)   hs_out <= 0;
-	if(sd_hcnt == hs_start) hs_out <= 1;
-
-	hs <= hs_in;
-	hb <= hb_in;
-
-	hcnt <= hcnt + 1'd1;
-	if(hb && !hb_in) begin
-		hde_start <= hcnt[31:1];
-		hbo[0] <= 0;
-		hcnt <= 0;
-		sd_hcnt <= 0;
-		vbo <= {vbo[2:0],vb_in};
-	end
-
-	if(!hb && hb_in) hde_end <= hcnt[31:1];
-
-	// falling edge of hsync indicates start of line
-	if(hs && !hs_in) begin
-		hs_end <= hcnt[31:1];
-		vso[0] <= vs_in;
-	end
-
-	// save position of rising edge
-	if(!hs && hs_in) hs_start <= hcnt[31:1];
-end
-
-assign vs_out = vso[3];
-assign ce_pix_out = hq2x ? ce_x4o : ce_x2o;
-
-//Compensate picture shift after HQ2x
-assign vb_out = vbo[3];
-assign hb_out = hbo[6];
-
 endmodule
