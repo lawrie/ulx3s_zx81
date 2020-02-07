@@ -33,11 +33,11 @@ module fpga_zx81 (
    end
 
    // Diagnostics
-   assign led = {ce_cpu_p, rom_e, ram_e, ram_we, int_n, rfsh_n, halt_n, nmi_n};
+   assign led = {ce_cpu_p, rom_e, ram_e, ram_we, mreq_n, nopgen_store, nmi_latch};
    //assign led = cpu_din;
-   assign led1 = addr[15:8];
+   assign led1 = key_data;
 
-   always @(posedge clk_sys) led2 = ps2_key[7:0];
+   always @(posedge clk_sys) led2 <= shifter_reg;
 
    // Audio: TODO
    assign mic = 0;
@@ -58,7 +58,7 @@ module fpga_zx81 (
    wire [11:1] Fn;
    wire [2:0]  mod;
 
-   wire [7:0]  io_dout = {3'b0, key_data};
+   wire [7:0]  io_dout = kbd_n ? 8'hff : {3'b0, key_data};
 
    // When refresh is low, the ram_data_latch and row_counter are used to load
    // pixels corresponding to a character from the map in the rom
@@ -110,7 +110,7 @@ module fpga_zx81 (
      endcase
      
      case({mreq_n, ~m1_n | iorq_n | rd_n})
-       'b01: cpu_din = (~m1_n & nopgen) ? 8'h00 : ram_out;
+       'b01: cpu_din = (~m1_n & nopgen) ? 8'h00 : mem_out;
        'b10: cpu_din = io_dout;
        default cpu_din = 8'hFF;
      endcase
@@ -126,10 +126,10 @@ module fpga_zx81 (
    reg [2:0] row_counter;
    reg       nmi_latch;
    reg       shifter_en;
-   wire      shifter_start = mreq_n & nopgen_store & ce_cpu_p & ~nmi_latch;
+   wire      shifter_start = mreq_n & nopgen_store & ce_cpu_p & (~zx81 | ~nmi_latch);
    reg [7:0] shifter_reg;
    reg       inverse;
-   wire      video_out = (shifter_reg[7] ^ inverse);
+   wire      video_out = (shifter_reg[7] ^ inverse) & !back_porch_counter & csync;
 
    reg[4:0]  back_porch_counter = 1;
    reg       old_csync;
@@ -150,13 +150,13 @@ module fpga_zx81 (
 
      if (~old_shifter_start & shifter_start) begin
        shifter_reg <= (~m1_n & nopgen) ? 8'h0 : mem_out;
-	inverse <= ram_data_latch[7];
-     end else begin
+       inverse <= ram_data_latch[7];
+     end else if (ce_65) begin
        shifter_reg <= { shifter_reg[6:0], 1'b0 };
      end
 
      if (old_csync & ~csync) row_counter <= row_counter + 1'd1;
-     if (~vsync) row_counter <= 0;
+     if (~vsync_in) row_counter <= 0;
 
      if (~old_csync & csync) back_porch_counter <= 1;
      if (ce_65 && back_porch_counter) back_porch_counter <= back_porch_counter + 1'd1;
@@ -165,8 +165,9 @@ module fpga_zx81 (
 	
    // ZX80 sync generator
    reg ic11,ic18,ic19_1,ic19_2;
-   //wire csync = ic11 & hsync_in;
-   wire csync = ic19_2;
+   wire csync = ic11 & hsync_in; 
+   wire vsync_in = ic11; 
+   //wire csync = ic19_2; // ZX80 original
    reg old_m1_n;
 
    always @(posedge clk_sys) begin
@@ -211,7 +212,7 @@ module fpga_zx81 (
    ram1k ram(
      .clk(clk_sys),
      .ce(ram_e),
-     .a(addr[9:0]),
+     .a(ram_a),
      .din(cpu_dout),
      .dout(ram_out),
      .we(~wr_n)
@@ -221,7 +222,7 @@ module fpga_zx81 (
    rom the_rom(
      .clk(clk_sys),
      .ce(rom_e),
-     .a(addr[13:0]),
+     .a({(zx81 ? rom_a[12] : 2'h2), rom_a[11:0]}),
      .din(cpu_dout),
      .dout(rom_out),
      .we(~wr_n) //  & enable_write_to_rom)
@@ -264,7 +265,7 @@ module fpga_zx81 (
    scandoubler scandoubler (
      .clk(clk_sys),
      .ce_2pix(ce_13),
-     .scanlines(1),
+     .scanlines(0),
      .csync(csync),
      .v_in(video_out),
      .hs_out(hsync),
