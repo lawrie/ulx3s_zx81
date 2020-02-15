@@ -219,7 +219,7 @@ always @(posedge clk_sys) begin
 	input_strobe <= 0;
 	old_state <= ps2_key[10];
 
-	if(old_state != ps2_key[10]) begin
+	if(ps2_key[10]) begin
 		release_btn <= ~ps2_key[9];
 		code <= ps2_key[7:0];
 		input_strobe <= 1;

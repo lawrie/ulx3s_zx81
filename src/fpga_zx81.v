@@ -35,9 +35,11 @@ module fpga_zx81 (
    // Diagnostics
    assign led = {ce_cpu_p, rom_e, ram_e, ram_we, mreq_n, nopgen_store, nmi_latch};
    //assign led = cpu_din;
-   assign led1 = key_data;
+   assign led1 = {ps2_key[10:8], key_data};
+   //assign led1 = addr[15:8];
 
-   always @(posedge clk_sys) led2 <= shifter_reg;
+   always @(posedge clk_sys) if (~kbd_n && !(&key_data)) led2 <= io_dout;
+   //always @(posedge clk_sys) led2 <= addr[7:0];
 
    // Audio: TODO
    assign mic = 0;
@@ -58,7 +60,7 @@ module fpga_zx81 (
    wire [11:1] Fn;
    wire [2:0]  mod;
 
-   wire [7:0]  io_dout = kbd_n ? 8'hff : {3'b0, key_data};
+   wire [7:0]  io_dout = kbd_n ? 8'hff : {3'b010, key_data};
 
    // When refresh is low, the ram_data_latch and row_counter are used to load
    // pixels corresponding to a character from the map in the rom
@@ -117,9 +119,12 @@ module fpga_zx81 (
    end
 
    // Video 
-   // Generate a NOP when executing a display list
-   wire      nopgen = addr[15] & ~ram_out[6] & halt_n;
+   // Character generation
    
+   localparam option_inverse = 1'b0;
+   
+   // Generate a NOP when executing a display list
+   wire      nopgen = addr[15] & ~mem_out[6] & halt_n;
    wire      data_latch_enable = rfsh_n & ce_cpu_n & ~mreq_n;
    reg [7:0] ram_data_latch;
    reg       nopgen_store;
@@ -128,8 +133,8 @@ module fpga_zx81 (
    reg       shifter_en;
    wire      shifter_start = mreq_n & nopgen_store & ce_cpu_p & (~zx81 | ~nmi_latch);
    reg [7:0] shifter_reg;
+   wire      video_out = (~option_inverse ^ shifter_reg[7] ^ inverse) & !back_porch_counter & csync;
    reg       inverse;
-   wire      video_out = (shifter_reg[7] ^ inverse) & !back_porch_counter & csync;
 
    reg[4:0]  back_porch_counter = 1;
    reg       old_csync;
@@ -165,7 +170,7 @@ module fpga_zx81 (
 	
    // ZX80 sync generator
    reg ic11,ic18,ic19_1,ic19_2;
-   wire csync = ic11 & hsync_in; 
+   wire csync = vsync_in & hsync_in; 
    wire vsync_in = ic11; 
    //wire csync = ic19_2; // ZX80 original
    reg old_m1_n;
@@ -223,6 +228,7 @@ module fpga_zx81 (
      .clk(clk_sys),
      .ce(rom_e),
      .a({(zx81 ? rom_a[12] : 2'h2), rom_a[11:0]}),
+     //.a(rom_a[12:0]),
      .din(cpu_dout),
      .dout(rom_out),
      .we(~wr_n) //  & enable_write_to_rom)
