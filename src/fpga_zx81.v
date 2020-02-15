@@ -220,7 +220,7 @@ module fpga_zx81 (
      .a(ram_a),
      .din(cpu_dout),
      .dout(ram_out),
-     .we(~wr_n)
+     .we(~wr_n & ~mreq_n)
    );
 		
    /* ROM */
