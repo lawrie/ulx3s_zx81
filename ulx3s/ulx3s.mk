@@ -1,6 +1,6 @@
-DEVICE ?= 25k
+DEVICE ?= 85k
 PIN_DEF ?= ulx3s_v20.lpf
-IDCODE ?= 0x21111043 # 12f
+IDCODE ?= 0x41113043 # 85f
 
 BUILDDIR = bin
 

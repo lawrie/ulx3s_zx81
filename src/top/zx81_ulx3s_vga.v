@@ -48,29 +48,25 @@ module zx81 (
 
   // Power-on RESET (8 clocks)
   reg [7:0] poweron_reset = 8'h00;
-  always @(posedge clkcpu) begin
+  always @(posedge clk_sys) begin
     poweron_reset <= {poweron_reset[6:0],1'b1};
   end
 
   wire clkdvi;
-  wire clksys; 
-  wire clkvga; 
-  wire clkcpu; 
+  wire clk_sys; 
 
-  clk_25_system pll (
+  pll pll_i (
     .clkin(clk_25mhz),
     .clkout0(clkdvi), // 125 Mhz, DDR bit rate
-    .clkout1(clksys),  //  52 Mhz system clock
-    .clkout2(clkvga),  //  25 Mhz, VGA pixel rate
-    .clkout3(clkcpu)   //  3.25 Mhz, CPU clock
+    .clkout1(clk_sys),  //  13 Mhz system clock
   );
 
   wire [10:0] ps2_key;
 
   // The ZX80/ZX81 core
   fpga_zx81 the_core (
-    .clk_sys(clksys),
-    .reset(poweron_reset[7] & btn[0]),
+    .clk_sys(clk_sys),
+    .reset_n(poweron_reset[7] & btn[0]),
     .ear(ear),
     .ps2_key(ps2_key),
     .video(video),
@@ -90,7 +86,7 @@ module zx81 (
 
   // Get PS/2 keyboard events
   ps2 ps2_kbd (
-     .clk(clkcpu),
+     .clk(clk_sys),
      .ps2_clk(usb_fpga_bd_dp),
      .ps2_data(usb_fpga_bd_dn),
      .ps2_key(ps2_key)

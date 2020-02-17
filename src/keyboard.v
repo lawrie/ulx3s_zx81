@@ -68,11 +68,12 @@ assign key_data = (!addr[8]  ? keys[0] : 5'b11111)
 reg  input_strobe = 0;
 wire shift = mod[0];
 reg old_reset = 0;
+reg pressed = 0;
 
 always @(posedge clk_sys) begin
 	old_reset <= reset;
 
-	if(~old_reset & reset)begin
+	if (old_reset != reset || (ps2_key[10] && ~ps2_key[9])) begin
 		keys[0] <= 5'b11111;
 		keys[1] <= 5'b11111;
 		keys[2] <= 5'b11111;
@@ -222,7 +223,7 @@ always @(posedge clk_sys) begin
 	if(ps2_key[10]) begin
 		release_btn <= ~ps2_key[9];
 		code <= ps2_key[7:0];
-		input_strobe <= 1;
+		if (ps2_key[9]) input_strobe <= 1;
 	end
 end
 

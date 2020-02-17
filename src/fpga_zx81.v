@@ -3,7 +3,7 @@
 
 module fpga_zx81 (
     input  wire clk_sys,
-    input  wire reset,
+    input  wire reset_n,
     input  wire ear,
     input  wire [10:0] ps2_key,
     output wire video,
@@ -20,26 +20,25 @@ module fpga_zx81 (
    // Clock generation
    reg       ce_cpu_p;
    reg       ce_cpu_n;
-   reg       ce_13, ce_65, ce_psg;
+   reg       ce_65, ce_psg;
    reg [4:0] counter = 0;
 
    always @(negedge clk_sys) begin
      counter  <=  counter + 1'd1;
-     ce_cpu_p <= !counter[3] & !counter[2:0];
-     ce_cpu_n <=  counter[3] & !counter[2:0];
-     ce_65    <= !counter[2:0];
-     ce_13    <= !counter[1:0];
-     ce_psg   <= !counter[4:0];
+     ce_cpu_p <= !counter[1] & !counter[0];
+     ce_cpu_n <=  counter[1] & !counter[0];
+     ce_65    <= !counter[0];
+     ce_psg   <= !counter[2:0];
    end
 
    // Diagnostics
-   assign led = {ce_cpu_p, rom_e, ram_e, ram_we, mreq_n, nopgen_store, nmi_latch};
+   assign led = {ce_cpu_p, rom_e, ram_e, ram_we, mreq_n, nopgen_store, inverse};
    //assign led = cpu_din;
-   assign led1 = {ps2_key[10:8], key_data};
+   assign led1 = io_dout;
    //assign led1 = addr[15:8];
 
-   always @(posedge clk_sys) if (~kbd_n && !(&key_data)) led2 <= io_dout;
-   //always @(posedge clk_sys) led2 <= addr[7:0];
+   //always @(posedge clk_sys) if (~kbd_n && !(&key_data)) led2 <= io_dout;
+   always @(posedge clk_sys) if (addr == 16'h0000) led2 <= mem_out;
 
    // Audio: TODO
    assign mic = 0;
@@ -60,10 +59,11 @@ module fpga_zx81 (
    wire [11:1] Fn;
    wire [2:0]  mod;
 
-   wire [7:0]  io_dout = kbd_n ? 8'hff : {3'b010, key_data};
+   //wire [7:0]  io_dout = kbd_n ? 8'hff : {3'b010, key_data};
+   wire [7:0]  io_dout = kbd_n ? 8'hff : {3'b000, key_data};
 
    // When refresh is low, the ram_data_latch and row_counter are used to load
-   // pixels corresponding to a character from the map in the rom
+   // pixels corresponding to a character from the font in the rom
    wire [12:0] rom_a  = rfsh_n ? addr[12:0] : { addr[12:9], ram_data_latch[5:0], row_counter };
 
    // Indicator for zx80 or zx81
@@ -108,11 +108,12 @@ module fpga_zx81 (
         'b01: ram_a = { 2'b01,                 addr[13:0] }; //16k
         'b10: ram_a = { 1'b0, addr[15] & m1_n, addr[13:0] } + 16'h4000; //32k
         'b11: ram_a = { addr[15] & m1_n,       addr[14:0] }; //64k
-	default: ram_a = 8'd0;
+	//default: ram_a = 8'd0;
      endcase
      
      case({mreq_n, ~m1_n | iorq_n | rd_n})
-       'b01: cpu_din = (~m1_n & nopgen) ? 8'h00 : mem_out;
+       // Generate NOP during memory request when nopgen set 
+       'b01: cpu_din = (~m1_n & nopgen) ? 8'h00 : mem_out; 
        'b10: cpu_din = io_dout;
        default cpu_din = 8'hFF;
      endcase
@@ -129,7 +130,6 @@ module fpga_zx81 (
    reg [7:0] ram_data_latch;
    reg       nopgen_store;
    reg [2:0] row_counter;
-   reg       nmi_latch;
    reg       shifter_en;
    wire      shifter_start = mreq_n & nopgen_store & ce_cpu_p & (~zx81 | ~nmi_latch);
    reg [7:0] shifter_reg;
@@ -193,9 +193,10 @@ module fpga_zx81 (
    end
 
    // ZX81 upgrade
-   reg old_cpu_n;
+   wire      hsync_in = ~(sync_counter >= 16 && sync_counter <= 31);
+   reg       nmi_latch;
    reg [7:0] sync_counter = 0;
-   wire hsync_in = ~(sync_counter >= 16 && sync_counter <= 31);
+   reg       old_cpu_n;
 
    assign wait_n = ~(halt_n & ~nmi_n) | ~zx81;
    assign nmi_n = ~(nmi_latch & ~hsync_in) | ~zx81;
@@ -249,8 +250,8 @@ module fpga_zx81 (
     .do(cpu_dout),
     // Inputs
     .di(cpu_din), 
-    .reset_n(reset), 
-    .clk(ce_cpu_p), 
+    .reset_n(reset_n), 
+    .clk(ce_cpu_n), 
     .wait_n(wait_n), 
     .int_n(int_n), 
     .nmi_n(nmi_n), 
@@ -259,7 +260,7 @@ module fpga_zx81 (
 
    // Keyboard matrix
    keyboard the_keyboard (
-     .reset(reset),
+     .reset(~reset_n),
      .clk_sys(clk_sys),
      .ps2_key(ps2_key),
      .addr(addr),
@@ -270,7 +271,7 @@ module fpga_zx81 (
 
    scandoubler scandoubler (
      .clk(clk_sys),
-     .ce_2pix(ce_13),
+     .ce_2pix(1),
      .scanlines(0),
      .csync(csync),
      .v_in(video_out),
