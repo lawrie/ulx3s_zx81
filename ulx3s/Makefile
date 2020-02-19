@@ -1,4 +1,4 @@
-VERILOG = ../src/top/zx81_ulx3s_vga.v \
+VERILOG = ../src/top/zx81_ulx3s.v \
     ../src/sys/pll.v ../src/sys/ps2.v ../src/sys/hdmi.v \
     ../src/sys/scandoubler.v \
     ../src/fpga_zx81.v ../src/memory.v ../src/keyboard.v \

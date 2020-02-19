@@ -30,6 +30,7 @@ module scandoubler (
   // output interface
   output reg          hs_out,
   output reg          vs_out,
+  output              de_out,
   output              v_out
 );
 
@@ -47,10 +48,10 @@ reg [7:0] sync_len;
 reg vs, csD;
 
 // horizontal display goes from 40 to 168. We add 16 border pixels left and right
-wire h_de = (sd_col >= (2*32)) && (sd_col < 2*182);   // 176
+wire h_de = (sd_col >= (2*32)) && (sd_col < 2*188);   // 176
 
 // vertical display goes from line 32 to 224.We add 16 border pixels top and bottom
-wire v_de = (line_cnt >= 16) && (line_cnt < 296);    // 240  
+wire v_de = (line_cnt >= 17) && (line_cnt < 296);    // 240  
 
 wire hs = sd_col < (2*192);
 
@@ -67,7 +68,7 @@ reg [9:0] wraddr;
 reg       q;
 
 assign v_out = (scanlines & scanline) ? 0 : q && v_de && h_de;
-
+assign de_out = v_de && h_de;
 // toggle bit to switch between both line buffers
 reg sd_toggle;
 

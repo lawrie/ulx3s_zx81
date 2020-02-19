@@ -68,7 +68,6 @@ assign key_data = (!addr[8]  ? keys[0] : 5'b11111)
 reg  input_strobe = 0;
 wire shift = mod[0];
 reg old_reset = 0;
-reg pressed = 0;
 
 always @(posedge clk_sys) begin
 	old_reset <= reset;
@@ -85,8 +84,10 @@ always @(posedge clk_sys) begin
 	end
 
 	if(input_strobe) begin
+		if (shift) keys[0][0] <= 0;
 		case(code)
-			8'h59, 8'h12: mod[0]<= ~release_btn; // left-right shift
+			//8'h59, 8'h12: mod[0]<= ~release_btn; // left-right shift
+			8'h59, 8'h12: mod[0]<= ~mod[0]; // left-right shift
 			8'h11: mod[1]<= ~release_btn; // alt
 			8'h14: mod[2]<= ~release_btn; // ctrl
 			8'h05: Fn[1] <= ~release_btn; // F1
@@ -198,7 +199,7 @@ always @(posedge clk_sys) begin
 				end
 			8'h52 : begin // "
 					keys[0][0] <= release_btn;
-					keys[5][0] <= release_btn |  shift;
+					keys[5][4] <= release_btn | shift;
 				end
 			8'h4E : begin // -
 					keys[0][0] <= release_btn;
