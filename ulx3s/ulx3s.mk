@@ -1,6 +1,5 @@
 DEVICE ?= 85k
 PIN_DEF ?= ulx3s_v20.lpf
-IDCODE ?= 0x41113043 # 85f
 
 BUILDDIR = bin
 
@@ -17,7 +16,7 @@ $(BUILDDIR)/%.config: $(PIN_DEF) $(BUILDDIR)/toplevel.json
 	 nextpnr-ecp5 --${DEVICE} --package CABGA381 --freq 25 --textcfg  $@ --json $(filter-out $<,$^) --lpf $< 
 
 $(BUILDDIR)/toplevel.bit: $(BUILDDIR)/toplevel.config
-	ecppack --idcode ${IDCODE} $^ $@
+	ecppack --compress  $^ $@
 
 clean:
 	rm -rf ${BUILDDIR}

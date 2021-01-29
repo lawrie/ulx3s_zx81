@@ -49,14 +49,25 @@ module zx81 (
     poweron_reset <= {poweron_reset[6:0],1'b1};
   end
 
+    localparam pixel_clock = 12500000; // 12.5 MHz slower than original, screen stable
+  //localparam pixel_clock = 13000000; // 13 MHz original, screen jitters
+
   wire clkdvi;
   wire clk_sys; 
-
-  pll pll_i (
-    .clkin(clk_25mhz),
-    .clkout0(clkdvi), // 125 Mhz, DDR bit rate
-    .clkout1(clk_sys),  //  13 Mhz system clock
+  wire [3:0] clocks;
+  ecp5pll
+  #(
+   .in_hz  ( 25*1000000),
+   .out0_hz(pixel_clock*10),
+   .out1_hz(pixel_clock)
+  )
+  ecp5pll_inst
+  (
+    .clk_i(clk_25mhz),
+    .clk_o(clocks)
   );
+  assign clkdvi = clocks[0];
+  assign clk_sys = clocks[1];
 
   wire [10:0] ps2_key;
 
