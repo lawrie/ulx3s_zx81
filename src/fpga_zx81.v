@@ -23,12 +23,14 @@ module fpga_zx81 (
    reg       ce_65, ce_psg;
    reg [2:0] counter = 0;
 
+   // Use a 13MHz clock. When bit zero of counter is low, a 6.5MHz cycle is active
+   // ce_psg is a slower clock used by the sound generator
    always @(negedge clk_sys) begin
      counter  <=  counter + 1'd1;
      ce_cpu_p <= !counter[1] & !counter[0];
      ce_cpu_n <=  counter[1] & !counter[0];
      ce_65    <= !counter[0];
-     ce_psg   <= !counter[2:0];
+     ce_psg   <= !counter;
    end
 
    // Diagnostics
@@ -66,7 +68,7 @@ module fpga_zx81 (
    reg         zx81 = 0;
 
    // Selector for memory size
-   reg  [1:0]  mem_size = 2'b00; //00-1k, 01 - 16k 10 - 32k
+   reg  [1:0]  mem_size = 2'b01; //00-1k, 01 - 16k 10 - 32k
 
    // Ram address
    reg  [15:0] ram_a;
@@ -104,7 +106,6 @@ module fpga_zx81 (
         'b01: ram_a = { 2'b01,                 addr[13:0] }; //16k
         'b10: ram_a = { 1'b0, addr[15] & m1_n, addr[13:0] } + 16'h4000; //32k
         'b11: ram_a = { addr[15] & m1_n,       addr[14:0] }; //64k
-	//default: ram_a = 8'd0;
      endcase
      
      case({mreq_n, ~m1_n | iorq_n | rd_n})
@@ -121,10 +122,13 @@ module fpga_zx81 (
    localparam option_inverse = 1'b0;
    
    // Generate a NOP when executing a display list
+   // NOP is generated when address bit 15 is set and stopped by a halt instruction (which has bit 6 set)
+   // During this period mem_out will contain 6 pixels, with bit 6 low and bit 7 indicating invert
    wire      nopgen = addr[15] & ~mem_out[6] & halt_n;
+   // Nopgen_store is set one cycle after nopgen
+   reg       nopgen_store;
    wire      data_latch_enable = rfsh_n & ce_cpu_n & ~mreq_n;
    reg [7:0] ram_data_latch;
-   reg       nopgen_store;
    reg [2:0] row_counter;
    wire      shifter_start = mreq_n & nopgen_store & ce_cpu_p & (~zx81 | ~nmi_latch);
    reg [7:0] shifter_reg;
@@ -197,7 +201,7 @@ module fpga_zx81 (
    end
 
    // ZX81 upgrade
-   reg       old_cpu_n;
+   reg    old_cpu_n;
 
    assign wait_n = ~(halt_n & ~nmi_n) | ~zx81;
    assign nmi_n = ~(nmi_latch & ~hsync_in) | ~zx81;
@@ -216,7 +220,7 @@ module fpga_zx81 (
    end
 
    /* RAM */
-   ram1k ram(
+   ram16k ram(
      .clk(clk_sys),
      .ce(ram_e),
      .a(ram_a),
@@ -229,10 +233,10 @@ module fpga_zx81 (
    rom the_rom(
      .clk(clk_sys),
      .ce(rom_e),
-     .a({(zx81 ? rom_a[12] : 2'h2), rom_a[11:0]}),
+     .a({(zx81 ? rom_a[12] : 2'h2), rom_a[11:0]}), // Select ZX80 or ZX81 rom
      .din(cpu_dout),
      .dout(rom_out),
-     .we(~wr_n) //  & enable_write_to_rom)
+     .we(1'b0)
    );
 
    /* CPU */
