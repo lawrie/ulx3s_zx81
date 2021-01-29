@@ -21,7 +21,7 @@ module fpga_zx81 (
    reg       ce_cpu_p;
    reg       ce_cpu_n;
    reg       ce_65, ce_psg;
-   reg [4:0] counter = 0;
+   reg [2:0] counter = 0;
 
    always @(negedge clk_sys) begin
      counter  <=  counter + 1'd1;
@@ -118,7 +118,7 @@ module fpga_zx81 (
    // Video 
    // Character generation
    
-   localparam option_inverse = 1'b1;
+   localparam option_inverse = 1'b0;
    
    // Generate a NOP when executing a display list
    wire      nopgen = addr[15] & ~mem_out[6] & halt_n;
@@ -126,20 +126,25 @@ module fpga_zx81 (
    reg [7:0] ram_data_latch;
    reg       nopgen_store;
    reg [2:0] row_counter;
-   reg       shifter_en;
    wire      shifter_start = mreq_n & nopgen_store & ce_cpu_p & (~zx81 | ~nmi_latch);
    reg [7:0] shifter_reg;
    wire      video_out = (~option_inverse ^ shifter_reg[7] ^ inverse) & !back_porch_counter & csync;
    reg       inverse;
+   reg [2:0] col_count;
 
    reg [4:0] back_porch_counter = 1;
    reg       old_csync;
    reg       old_shifter_start;
-   reg [7:0] paper_reg;
 
-   wire border = ~paper_reg[7]; // Not sure how this is used
-   wire kbd_n = iorq_n | rd_n | addr[0];
-  
+   reg       ic11,ic18,ic19_1,ic19_2;
+   reg [7:0] sync_counter = 0;
+   reg       nmi_latch;
+
+   wire      kbd_n = iorq_n | rd_n | addr[0];
+   wire      vsync_in = ic11;
+   wire      hsync_in = ~(sync_counter >= 16 && sync_counter <= 31);
+   wire      csync = vsync_in & hsync_in; 
+ 
    always @(posedge clk_sys) begin
      old_csync <= csync;
      old_shifter_start <= shifter_start;
@@ -151,13 +156,15 @@ module fpga_zx81 (
      
      if (mreq_n & ce_cpu_p) inverse <= 0;
 
-     if (~old_shifter_start & shifter_start) begin
-       shifter_reg <= (~m1_n & nopgen) ? 8'h0 : mem_out;
+     if (~old_shifter_start & shifter_start)
        inverse <= ram_data_latch[7];
-       paper_reg <= 8'hff;
+
+     if (~old_shifter_start & shifter_start & (col_count > 2)) begin // col_count is a hack to avoid shifter_reg
+       col_count <= 0;                                               // getting reset early for some unknown reason
+       shifter_reg <= (~m1_n & nopgen) ? 8'h0 : mem_out;
      end else if (ce_65) begin
        shifter_reg <= { shifter_reg[6:0], 1'b0 };
-       paper_reg <= { paper_reg[6:0], 1'b0 };
+       col_count <= col_count + 1;
      end
 
      if (old_csync & ~csync) row_counter <= row_counter + 1'd1;
@@ -169,10 +176,7 @@ module fpga_zx81 (
    end
 	
    // ZX80 sync generator
-   reg ic11,ic18,ic19_1,ic19_2;
    //wire csync = ic19_2; // ZX80 original
-   wire csync = vsync_in & hsync_in; 
-   wire vsync_in = ic11; 
    reg old_m1_n;
 
    always @(posedge clk_sys) begin
@@ -193,9 +197,6 @@ module fpga_zx81 (
    end
 
    // ZX81 upgrade
-   wire      hsync_in = ~(sync_counter >= 16 && sync_counter <= 31);
-   reg       nmi_latch;
-   reg [7:0] sync_counter = 0;
    reg       old_cpu_n;
 
    assign wait_n = ~(halt_n & ~nmi_n) | ~zx81;
@@ -268,6 +269,7 @@ module fpga_zx81 (
      .mod(mod)
    );
 
+   // Scan doubler
    scandoubler scandoubler (
      .clk(clk_sys),
      .ce_2pix(1),
