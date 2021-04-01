@@ -14,13 +14,16 @@ module ps2 (
     `define RCVSTOP     2'b11
 
     reg [7:0] scancode;
-    reg [1:0] extended = 2'b00;
-    reg [1:0] released = 2'b00;
+    reg       extended = 1'b0;
+    reg       released = 1'b0;
     reg       kb_interrupt = 1'b0;
+    reg       kb_released = 1'b0;
+    reg       kb_extended = 1'b0;
+
     reg [7:0] key = 8'h00;
     reg [1:0] state = `RCVSTART;
     
-    assign ps2_key = {kb_interrupt, released[1], extended[1], scancode};
+    assign ps2_key = {kb_interrupt, !kb_released, kb_extended, scancode};
 
     // Synchronise ps2 clock and data with system clock
     reg [1:0] ps2clk_synchr;
@@ -62,12 +65,14 @@ module ps2 (
             end else if (state == `RCVSTOP) begin
                 state <= `RCVSTART;                
                 if (ps2data) begin // Stop bit
-                   scancode <= key;
-                   if (key == 8'hE0) extended <= 2'b01;
-                   else if (key == 8'hF0) released <= 2'b01;
+                   if (key == 8'hE0) extended <= 1'b1;
+                   else if (key == 8'hF0) released <= 1'b1;
                    else begin
-                     extended <= {extended[0], 1'b0};
-                     released <= {released[0], 1'b0};
+                     scancode <= key;
+		     kb_released <= released;
+		     kb_extended <= extended;
+		     extended <= 1'b0;
+		     released <= 1'b0;
                      kb_interrupt <= 1'b1;
                    end
                 end
@@ -76,8 +81,8 @@ module ps2 (
             timeout_cnt <= timeout_cnt + 1;
 	    if (&timeout_cnt) begin
               state <= `RCVSTART;
-              extended <= 2'b00;
-              released <= 2'b00;
+              //extended <= 1'b0;
+              //released <= 2'b0;
             end
         end
     end

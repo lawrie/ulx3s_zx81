@@ -14,6 +14,7 @@ module zx81 (
     output wire        usb_fpga_pu_dn,
     output wire [7:0]  led,
     input  wire [6:0]  btn,
+    input  wire [3:0]  sw,
 
     output wire        hsync,
     output wire        vsync,
@@ -85,6 +86,7 @@ module zx81 (
     .vde(vde),
     .mic(mic),
     .spk(spk),
+    .zx81(sw[0]),
     .led(led),
     .led1({gp[0], gp[1], gp[2], gp[3], gn[0], gn[1], gn[2], gn[3]}),
     .led2({gp[7], gp[8], gp[9], gp[10], gn[7], gn[8], gn[9], gn[10]})

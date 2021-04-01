@@ -12,6 +12,7 @@ module fpga_zx81 (
     output wire vde,
     output wire mic,
     output wire spk,
+    input wire zx81,
     output wire [7:0] led,
     output wire [7:0] led1,
     output reg [7:0] led2
@@ -63,9 +64,6 @@ module fpga_zx81 (
    // When refresh is low, the ram_data_latch and row_counter are used to load
    // pixels corresponding to a character from the font in the rom
    wire [12:0] rom_a  = rfsh_n ? addr[12:0] : { addr[12:9], ram_data_latch[5:0], row_counter };
-
-   // Indicator for zx80 or zx81
-   reg         zx81 = 0;
 
    // Selector for memory size
    reg  [1:0]  mem_size = 2'b01; //00-1k, 01 - 16k 10 - 32k
